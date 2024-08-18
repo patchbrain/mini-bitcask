@@ -1,32 +1,37 @@
 package bitcask
 
 import (
-	"sync"
+	"mini-bitcask/util/log"
 )
 
 // Index bitcask的索引，用于快速查找数据
 type Index struct {
-	sync.Mutex
 	M map[string]IndexEntry
 }
 
 func NewIndex(num ...int) *Index {
-	var capcity int
+	log.FnLog("into")
+	var capicity int
 	if len(num) == 1 {
-		capcity = num[0]
+		capicity = num[0]
 	}
-	if capcity < 0 {
-		capcity = 0
+	if capicity < 0 {
+		capicity = 0
 	}
 
-	return &Index{M: make(map[string]IndexEntry, capcity)}
+	return &Index{M: make(map[string]IndexEntry, capicity)}
 }
 
 func (t *Index) Add(key string, newIe IndexEntry) {
-	t.Lock()
-	defer t.Unlock()
+	log.FnLog("into")
 
 	t.M[key] = newIe
+}
+
+func (t *Index) Fetch(key string) IndexEntry {
+	log.FnLog("into")
+
+	return t.M[key]
 }
 
 type IndexEntry struct {

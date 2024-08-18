@@ -1,12 +1,10 @@
 package bitcask
 
 import (
-	"encoding/json"
 	"mini-bitcask/util/log"
 	"os"
 	"path/filepath"
 	"strconv"
-	"sync"
 )
 
 const (
@@ -15,26 +13,25 @@ const (
 )
 
 type FileMgr struct {
-	Cur    *os.File // 当前正在写的文件实例
-	bc     *Bitcask
-	dir    string
-	next   int
-	offset int
-	sync.Mutex
+	Cur       *os.File // 当前正在写的文件实例
+	MaxFileSz int64    // 最大单个文件大小
+	dir       string
+	next      int32 // 下一个可写文件的编号
+	offset    int
 }
 
-func NewFileMgr(dir string, bc *Bitcask) *FileMgr {
+func NewFileMgr(dir string, maxFileSz int64) *FileMgr {
+	log.FnLog("into")
 	if len(dir) == 0 {
 		log.FnErrLog("get empty dir")
 		return nil
 	}
 
-	return &FileMgr{dir: dir, next: 1, bc: bc}
+	return &FileMgr{dir: dir, next: 1, MaxFileSz: maxFileSz}
 }
 
 func (t *FileMgr) CreateFile(write bool) (*os.File, error) {
-	t.Lock()
-	defer t.Unlock()
+	log.FnLog("into")
 
 	newPath := filepath.Join(t.dir, t.getNextName())
 	t.next++
@@ -55,10 +52,16 @@ func (t *FileMgr) CreateFile(write bool) (*os.File, error) {
 }
 
 func (t *FileMgr) getNextName() string {
-	return File_Prefix + strconv.Itoa(t.next)
+	log.FnLog("into")
+	return File_Prefix + strconv.Itoa(int(t.next))
 }
 
 func (t *FileMgr) Close() {
+	log.FnLog("into")
+	if t.Cur == nil {
+		return
+	}
+
 	err := t.Cur.Close()
 	if err != nil {
 		log.FnErrLog("close latest file failed: %s", err.Error())
@@ -67,25 +70,23 @@ func (t *FileMgr) Close() {
 }
 
 func (t *FileMgr) Offset() int {
-	t.Lock()
-	defer t.Unlock()
+	log.FnLog("into")
 
 	return t.offset
 }
 
-func (t *FileMgr) Append(entry Entry) error {
-	b, err := json.Marshal(entry)
-	if err != nil {
-		log.FnErrLog("marshal entry failed: %s", err.Error())
-		return err
-	}
+func (t *FileMgr) Append(entry Entry) (int32, error) {
+	var err error
 
-	if int64(t.offset+len(b)) > t.bc.Opt.MaxSingleFileSz {
+	log.FnLog("into")
+	b := EncodeEntry(entry)
+
+	if int64(t.offset+len(b)) > t.MaxFileSz {
 		log.FnLog("offset exceed file's max size, so new one")
 		_, err = t.CreateFile(true)
 		if err != nil {
 			log.FnErrLog("create new file failed: %s", err.Error())
-			return err
+			return 0, err
 		}
 	}
 
@@ -93,16 +94,17 @@ func (t *FileMgr) Append(entry Entry) error {
 	n, err = t.Cur.Write(b)
 	if err != nil {
 		log.FnErrLog("write data failed: %s", err.Error())
-		return err
+		return 0, err
 	}
 
 	t.offset += n
 
-	return nil
+	return t.next - 1, nil
 }
 
-func (t *FileMgr) Read(fid, offset, length int, key string) []byte {
-	fPath := filepath.Join(t.dir, File_Prefix+strconv.Itoa(fid))
+func (t *FileMgr) Read(fid, length int32, offset int, key string) []byte {
+	log.FnLog("into")
+	fPath := filepath.Join(t.dir, File_Prefix+strconv.Itoa(int(fid)))
 	f, err := os.Open(fPath)
 	if err != nil {
 		log.FnErrLog("open file failed: %s", err.Error())
@@ -111,7 +113,7 @@ func (t *FileMgr) Read(fid, offset, length int, key string) []byte {
 	defer func() { _ = f.Close() }()
 
 	dataB := make([]byte, length)
-	at := int64(offset + Header_size + len(key) + 1)
+	at := int64(offset + Header_size + len(key))
 	_, err = f.ReadAt(dataB, at)
 
 	return dataB
