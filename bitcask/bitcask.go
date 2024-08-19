@@ -16,7 +16,7 @@ type Bitcask struct {
 }
 
 func Open(dir string) *Bitcask {
-	log.FnLog("into")
+	log.FnDebug("into")
 	bc := new(Bitcask)
 
 	err := file.EnsureDir(dir, true)
@@ -46,12 +46,17 @@ func Open(dir string) *Bitcask {
 }
 
 func (t *Bitcask) Get(key string) []byte {
-	log.FnLog("into")
+	log.FnDebug("into")
 	// 找到索引结构体
-	idxEntry := t.Idx.Fetch(key)
+	idxEntry, ok := t.Idx.Fetch(key)
+	if !ok {
+		log.FnLog("found no index")
+		return nil
+	}
+
 	valB := t.F.Read(idxEntry.FileIdx, idxEntry.ValSz, idxEntry.Offset, key)
 	if valB == nil {
-		log.FnErrLog("found nil val")
+		log.FnLog("found nil val")
 		return nil
 	}
 
@@ -60,7 +65,7 @@ func (t *Bitcask) Get(key string) []byte {
 }
 
 func (t *Bitcask) Set(key string, val interface{}) error {
-	log.FnLog("into")
+	log.FnDebug("into")
 	wErr := func(err error) error {
 		return fmt.Errorf("bitcask set error: %w", err)
 	}
@@ -99,6 +104,20 @@ func (t *Bitcask) Set(key string, val interface{}) error {
 	}
 	log.FnLog("set a index entry: %#v", idxE)
 	t.Idx.Add(key, idxE)
+
+	return nil
+}
+
+func (t *Bitcask) Del(key string) error {
+	log.FnDebug("into")
+	// 在文件中追加一个墓碑值
+	_, err := t.F.Append(NewTombEntry(key))
+	if err != nil {
+		return err
+	}
+
+	// 删除索引
+	t.Idx.Remove(key)
 
 	return nil
 }

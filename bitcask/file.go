@@ -21,7 +21,7 @@ type FileMgr struct {
 }
 
 func NewFileMgr(dir string, maxFileSz int64) *FileMgr {
-	log.FnLog("into")
+	log.FnDebug("into")
 	if len(dir) == 0 {
 		log.FnErrLog("get empty dir")
 		return nil
@@ -31,7 +31,7 @@ func NewFileMgr(dir string, maxFileSz int64) *FileMgr {
 }
 
 func (t *FileMgr) CreateFile(write bool) (*os.File, error) {
-	log.FnLog("into")
+	log.FnDebug("into")
 
 	newPath := filepath.Join(t.dir, t.getNextName())
 	t.next++
@@ -52,12 +52,12 @@ func (t *FileMgr) CreateFile(write bool) (*os.File, error) {
 }
 
 func (t *FileMgr) getNextName() string {
-	log.FnLog("into")
+	log.FnDebug("into")
 	return File_Prefix + strconv.Itoa(int(t.next))
 }
 
 func (t *FileMgr) Close() {
-	log.FnLog("into")
+	log.FnDebug("into")
 	if t.Cur == nil {
 		return
 	}
@@ -70,7 +70,7 @@ func (t *FileMgr) Close() {
 }
 
 func (t *FileMgr) Offset() int {
-	log.FnLog("into")
+	log.FnDebug("into")
 
 	return t.offset
 }
@@ -78,7 +78,7 @@ func (t *FileMgr) Offset() int {
 func (t *FileMgr) Append(entry Entry) (int32, error) {
 	var err error
 
-	log.FnLog("into")
+	log.FnDebug("into")
 	b := EncodeEntry(entry)
 
 	if int64(t.offset+len(b)) > t.MaxFileSz {
@@ -103,7 +103,7 @@ func (t *FileMgr) Append(entry Entry) (int32, error) {
 }
 
 func (t *FileMgr) Read(fid, length int32, offset int, key string) []byte {
-	log.FnLog("into")
+	log.FnDebug("into")
 	fPath := filepath.Join(t.dir, File_Prefix+strconv.Itoa(int(fid)))
 	f, err := os.Open(fPath)
 	if err != nil {

@@ -10,7 +10,7 @@ type Index struct {
 }
 
 func NewIndex(num ...int) *Index {
-	log.FnLog("into")
+	log.FnDebug("into")
 	var capicity int
 	if len(num) == 1 {
 		capicity = num[0]
@@ -23,15 +23,22 @@ func NewIndex(num ...int) *Index {
 }
 
 func (t *Index) Add(key string, newIe IndexEntry) {
-	log.FnLog("into")
+	log.FnDebug("into")
 
 	t.M[key] = newIe
 }
 
-func (t *Index) Fetch(key string) IndexEntry {
-	log.FnLog("into")
+func (t *Index) Fetch(key string) (IndexEntry, bool) {
+	log.FnDebug("into")
 
-	return t.M[key]
+	val, ok := t.M[key]
+	return val, ok
+}
+
+func (t *Index) Remove(key string) {
+	log.FnDebug("into")
+
+	delete(t.M, key)
 }
 
 type IndexEntry struct {
