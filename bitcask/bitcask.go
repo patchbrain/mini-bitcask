@@ -76,18 +76,11 @@ func (t *Bitcask) Set(key string, val interface{}) error {
 	}
 
 	var (
-		valSz  = int32(len(b))
-		tStamp = int32(time.Now().Unix())
-		fid    int32
+		valSz = int32(len(b))
+		fid   int32
 	)
 
-	e := Entry{
-		KeySz:  int32(len(key)),
-		ValSz:  valSz,
-		TStamp: tStamp,
-		Key:    key,
-		Value:  b,
-	}
+	e := NewEntry(time.Now(), key, b)
 
 	fid, err = t.F.Append(e)
 	if err != nil {

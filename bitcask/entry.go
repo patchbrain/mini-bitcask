@@ -31,11 +31,5 @@ func NewTombEntry(key string) Entry {
 	tomb := Tomb{TombStone: 1}
 	b, _ := json.Marshal(tomb)
 
-	return Entry{
-		KeySz:  int32(len(key)),
-		ValSz:  int32(len(b)),
-		TStamp: int32(time.Now().Unix()),
-		Key:    key,
-		Value:  b,
-	}
+	return NewEntry(time.Now(), key, b)
 }
