@@ -15,8 +15,7 @@ func EncodeEntry(ent Entry) []byte {
 	b = resBE.AppendUint32(b, uint32(ent.TStamp))
 	buf := bytes.NewBuffer(b)
 	buf.WriteString(ent.Key)
-	buf.Write(ent.Value)
-
+	buf.Write(append(ent.Value.Body, ent.Value.Tomb))
 	log.FnLog("encode get string: %s", buf.String())
 	return buf.Bytes()
 }

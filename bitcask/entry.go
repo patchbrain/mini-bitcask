@@ -10,17 +10,21 @@ type Entry struct {
 	ValSz  int32  `json:"valSz"`
 	TStamp int32  `json:"tStamp"`
 	Key    string `json:"key"`
-	Value  []byte `json:"value"`
+	Value  Value  `json:"value"`
 }
 
-type Tomb struct {
-	TombStone int `json:"tombStone"`
+type Value struct {
+	Body []byte `json:"body"`
+	Tomb byte   `json:"tomb"`
 }
 
-func NewEntry(t time.Time, key string, value []byte) Entry {
+func NewEntry(t time.Time, key string, value Value) Entry {
+	b, _ := json.Marshal(value)
+	valLen := int32(len(b))
+
 	return Entry{
 		KeySz:  int32(len(key)),
-		ValSz:  int32(len(value)),
+		ValSz:  valLen,
 		TStamp: int32(t.Unix()),
 		Key:    key,
 		Value:  value,
@@ -28,8 +32,5 @@ func NewEntry(t time.Time, key string, value []byte) Entry {
 }
 
 func NewTombEntry(key string) Entry {
-	tomb := Tomb{TombStone: 1}
-	b, _ := json.Marshal(tomb)
-
-	return NewEntry(time.Now(), key, b)
+	return NewEntry(time.Now(), key, Value{Body: []byte{}, Tomb: 1})
 }

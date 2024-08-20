@@ -60,8 +60,26 @@ func (t *Bitcask) Get(key string) []byte {
 		return nil
 	}
 
+	if isTomb(valB) {
+		log.FnLog("value is tomb, key: %s", key)
+		return nil
+	}
+
 	log.FnLog("found val: %s", string(valB))
-	return valB
+	return valB[:len(valB)-1]
+}
+
+func isTomb(b []byte) bool {
+	if len(b) == 0 {
+		log.FnErrLog("error data")
+		return false
+	}
+
+	if b[len(b)-1] == 0 {
+		return false
+	}
+
+	return true
 }
 
 func (t *Bitcask) Set(key string, val interface{}) error {
@@ -76,23 +94,22 @@ func (t *Bitcask) Set(key string, val interface{}) error {
 	}
 
 	var (
-		valSz = int32(len(b))
-		fid   int32
+		fid int32
 	)
 
-	e := NewEntry(time.Now(), key, b)
+	e := NewEntry(time.Now(), key, Value{Body: b})
 
 	fid, err = t.F.Append(e)
 	if err != nil {
 		return wErr(err)
 	}
 
-	lastOff := t.F.Offset() - int(valSz) - len(key) - Header_size
+	valSz := int32(t.F.Offset() - t.F.LastOffset() - Header_size - len(key))
 	// 写索引信息
 	idxE := IndexEntry{
 		FileIdx: fid,
 		ValSz:   valSz,
-		Offset:  lastOff,
+		Offset:  t.F.LastOffset(),
 		TStamp:  0,
 	}
 	log.FnLog("set a index entry: %#v", idxE)

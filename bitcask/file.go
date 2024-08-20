@@ -13,11 +13,12 @@ const (
 )
 
 type FileMgr struct {
-	Cur       *os.File // 当前正在写的文件实例
-	MaxFileSz int64    // 最大单个文件大小
-	dir       string
-	next      int32 // 下一个可写文件的编号
-	offset    int
+	Cur        *os.File // 当前正在写的文件实例
+	MaxFileSz  int64    // 最大单个文件大小
+	dir        string
+	next       int32 // 下一个可写文件的编号
+	lastOffset int
+	offset     int
 }
 
 func NewFileMgr(dir string, maxFileSz int64) *FileMgr {
@@ -75,6 +76,12 @@ func (t *FileMgr) Offset() int {
 	return t.offset
 }
 
+func (t *FileMgr) LastOffset() int {
+	log.FnDebug("into")
+
+	return t.lastOffset
+}
+
 func (t *FileMgr) Append(entry Entry) (int32, error) {
 	var err error
 
@@ -97,6 +104,7 @@ func (t *FileMgr) Append(entry Entry) (int32, error) {
 		return 0, err
 	}
 
+	t.lastOffset = t.offset
 	t.offset += n
 
 	return t.next - 1, nil
