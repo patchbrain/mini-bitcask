@@ -6,7 +6,7 @@ import (
 	"testing"
 )
 
-// 目前只测试了value类型为string的情况
+// only test string type value by now
 func TestMulFiles(t *testing.T) {
 	r := rand.New(rand.NewSource(rand.Int63()))
 	size := 120000
@@ -14,8 +14,8 @@ func TestMulFiles(t *testing.T) {
 	checkKeys := make([]string, 0)
 
 	for i := 0; i < size; i++ {
-		key := "key_" + strings.GetCurrentStr(r.Intn(10))
-		val := "value_" + strings.GetCurrentStr(r.Intn(100))
+		key := "key_" + strings.GetRandomStr(r.Intn(10))
+		val := "value_" + strings.GetRandomStr(r.Intn(100))
 		err := bc.Set(key, val)
 		if err != nil {
 			t.Errorf("set error: %s", err.Error())

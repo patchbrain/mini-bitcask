@@ -9,10 +9,10 @@ import (
 )
 
 type Bitcask struct {
-	F   *FileMgr
-	Idx *Index
-	Opt *Option
-	Dir string
+	F     *FileMgr
+	Index *Index
+	Opt   *Option
+	Dir   string
 }
 
 func Open(dir string) *Bitcask {
@@ -40,7 +40,7 @@ func Open(dir string) *Bitcask {
 	// todo: 加载index
 
 	idx := NewIndex()
-	bc.Idx = idx
+	bc.Index = idx
 
 	return bc
 }
@@ -48,7 +48,7 @@ func Open(dir string) *Bitcask {
 func (t *Bitcask) Get(key string) []byte {
 	log.FnDebug("into")
 	// 找到索引结构体
-	idxEntry, ok := t.Idx.Fetch(key)
+	idxEntry, ok := t.Index.Fetch(key)
 	if !ok {
 		log.FnLog("found no index")
 		return nil
@@ -105,7 +105,6 @@ func (t *Bitcask) Set(key string, val interface{}) error {
 	}
 
 	valSz := int32(t.F.Offset() - t.F.LastOffset() - Header_size - len(key))
-	// 写索引信息
 	idxE := IndexEntry{
 		FileIdx: fid,
 		ValSz:   valSz,
@@ -113,7 +112,7 @@ func (t *Bitcask) Set(key string, val interface{}) error {
 		TStamp:  0,
 	}
 	log.FnLog("set a index entry: %#v", idxE)
-	t.Idx.Add(key, idxE)
+	t.Index.Add(key, idxE)
 
 	return nil
 }
@@ -127,7 +126,25 @@ func (t *Bitcask) Del(key string) error {
 	}
 
 	// 删除索引
-	t.Idx.Remove(key)
+	t.Index.Remove(key)
 
 	return nil
+}
+
+func (t *Bitcask) Merge() error {
+	if t.F.next <= 2 {
+		return fmt.Errorf("no need of merge")
+	}
+
+	toMergeM, err := t.F.Scan2Hash()
+	if err != nil {
+		return err
+	}
+
+	// todo: 将数据全部merge到新文件中,启动Index的Merge过程,在写完文件后发送结束指令
+	go t.Index.UpdateForMerge()
+
+	for _, entry := range toMergeM {
+
+	}
 }

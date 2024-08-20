@@ -8,7 +8,7 @@ import (
 
 const charset = "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789"
 
-func GetCurrentStr(length int) string {
+func GetRandomStr(length int) string {
 	var seededRand *rand.Rand = rand.New(rand.NewSource(time.Now().UnixNano()))
 
 	var stringBuilder strings.Builder

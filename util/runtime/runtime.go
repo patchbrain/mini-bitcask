@@ -14,7 +14,7 @@ func GetCurFuncName(skip ...int) string {
 		acSkip = 1
 	}
 
-	pc, _, _, _ := runtime.Caller(acSkip) // 获取调用者的程序计数器
-	fn := runtime.FuncForPC(pc)           // 获取对应的函数
-	return filepath.Base(fn.Name())       // 获取函数名
+	pc, _, _, _ := runtime.Caller(acSkip)
+	fn := runtime.FuncForPC(pc)
+	return filepath.Base(fn.Name())
 }

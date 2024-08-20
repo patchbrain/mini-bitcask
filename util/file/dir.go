@@ -8,14 +8,12 @@ import (
 	"path/filepath"
 )
 
-// EnsureDir 若指定路径合法，则确保有该目录
-// 若clean为true，则确保该目录被清空
+// EnsureDir make sure that the dir exists
+// if clean is true, clean the dir
 func EnsureDir(dir string, clean bool) error {
-	// 检查路径是否存在
 	info, err := os.Stat(dir)
 	if os.IsNotExist(err) {
-		// 路径不存在，尝试创建目录
-		err = os.MkdirAll(dir, 0755) // 0755 是目录权限
+		err = os.MkdirAll(dir, 0755)
 		if err != nil {
 			return fmt.Errorf("failed to create directory: %w", err)
 		}
@@ -28,7 +26,6 @@ func EnsureDir(dir string, clean bool) error {
 		return fmt.Errorf("path exists but is not a directory: %s", dir)
 	}
 
-	// 路径存在且是目录
 	log.FnLog("Directory already exists: %s, need clean: %t", dir, clean)
 	if clean {
 		err = filepath.WalkDir(dir, func(path string, d fs.DirEntry, err error) error {
