@@ -4,12 +4,16 @@ import (
 	"fmt"
 	"github.com/sirupsen/logrus"
 	"mini-bitcask/util/runtime"
+	"os"
 )
 
 var level = logrus.InfoLevel
 
 func init() {
+	logFile := "./out.log"
 	logrus.SetLevel(level)
+	f, _ := os.OpenFile(logFile, os.O_CREATE|os.O_RDWR, 0666)
+	logrus.SetOutput(f)
 }
 
 func FnLog(msg string, args ...interface{}) {

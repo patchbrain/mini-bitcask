@@ -9,7 +9,7 @@ import (
 const charset = "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789"
 
 func GetRandomStr(length int) string {
-	var seededRand *rand.Rand = rand.New(rand.NewSource(time.Now().UnixNano()))
+	var seededRand = rand.New(rand.NewSource(time.Now().UnixNano() + rand.Int63()))
 
 	var stringBuilder strings.Builder
 	stringBuilder.Grow(length) // 设置字符串的容量以优化性能

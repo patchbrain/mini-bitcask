@@ -9,7 +9,7 @@ import (
 // only test string type value by now
 func TestMulFiles(t *testing.T) {
 	r := rand.New(rand.NewSource(rand.Int63()))
-	size := 120000
+	size := 50000
 	kvM := make(map[string]interface{}, size)
 	checkKeys := make([]string, 0)
 

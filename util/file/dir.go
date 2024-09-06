@@ -9,8 +9,7 @@ import (
 )
 
 // EnsureDir make sure that the dir exists
-// if clean is true, clean the dir
-func EnsureDir(dir string, clean bool) error {
+func EnsureDir(dir string) error {
 	info, err := os.Stat(dir)
 	if os.IsNotExist(err) {
 		err = os.MkdirAll(dir, 0755)
@@ -26,35 +25,38 @@ func EnsureDir(dir string, clean bool) error {
 		return fmt.Errorf("path exists but is not a directory: %s", dir)
 	}
 
-	log.FnLog("Directory already exists: %s, need clean: %t", dir, clean)
-	if clean {
-		err = filepath.WalkDir(dir, func(path string, d fs.DirEntry, err error) error {
-			if path == dir {
-				return nil
-			}
+	log.FnLog("Directory already exists: %s", dir)
 
+	return nil
+}
+
+func CleanDir(dir string) error {
+	err := filepath.WalkDir(dir, func(path string, d fs.DirEntry, err error) error {
+		if path == dir {
+			return nil
+		}
+
+		if err != nil {
+			log.FnErrLog("encounter a error when walking file(%s): %s", path, err.Error())
+			return err
+		}
+
+		if d.IsDir() {
+			err = os.RemoveAll(path)
 			if err != nil {
-				log.FnErrLog("encounter a error when walking file(%s): %s", path, err.Error())
-				return err
-			}
-
-			if d.IsDir() {
-				err = os.RemoveAll(path)
-				if err != nil {
-					log.FnErrLog("remove all of dir(%s) failed: %s", path, err.Error())
-				}
-				return err
-			}
-
-			err = os.Remove(path)
-			if err != nil {
-				log.FnErrLog("remove file(%s) failed: %s", path, err.Error())
+				log.FnErrLog("remove all of dir(%s) failed: %s", path, err.Error())
 			}
 			return err
-		})
-		if err != nil {
-			return fmt.Errorf("walk dir error: %s", err.Error())
 		}
+
+		err = os.Remove(path)
+		if err != nil {
+			log.FnErrLog("remove file(%s) failed: %s", path, err.Error())
+		}
+		return err
+	})
+	if err != nil {
+		return fmt.Errorf("walk dir error: %s", err.Error())
 	}
 
 	return nil

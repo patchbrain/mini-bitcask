@@ -29,15 +29,15 @@ func DecodeFrom(offset int, b []byte) (Entry, int /* new offset */, error) {
 		return Entry{}, 0, fmt.Errorf("%w, offset: %d, length: %d", BytesShortErr, offset, len(b))
 	}
 
-	readInt32 := func() int32 {
-		value := int32(binary.BigEndian.Uint32(b[offset:]))
+	readUint32 := func() uint32 {
+		value := binary.BigEndian.Uint32(b[offset:])
 		offset += 4
 		return value
 	}
 
-	res.TStamp = readInt32()
-	res.KeySz = readInt32()
-	res.ValSz = readInt32()
+	res.KeySz = readUint32()
+	res.ValSz = readUint32()
+	res.TStamp = readUint32()
 
 	keyEnd := offset + int(res.KeySz)
 	if keyEnd+int(res.ValSz) > len(b) {

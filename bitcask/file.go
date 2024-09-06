@@ -8,7 +8,6 @@ import (
 	"os"
 	"path/filepath"
 	"strconv"
-	"time"
 )
 
 const (
@@ -60,6 +59,7 @@ func (t *FileMgr) CreateFile(write bool) (*os.File, error) {
 	if write {
 		t.Close()
 		t.Cur = f
+		t.lastOffset = 0
 		t.offset = 0
 	}
 
@@ -76,7 +76,7 @@ func (t *FileMgr) getNextName() string {
 }
 
 func (t *FileMgr) Close() {
-	log.FnDebug("into")
+	log.FnLog("into")
 	if t.Cur == nil {
 		return
 	}
@@ -153,13 +153,18 @@ func (t *FileMgr) Scan2Hash() (map[string]Entry, error) {
 		err     error
 	)
 
-	for ; fileIdx < t.next-1; fileIdx++ {
+	for ; fileIdx < t.next; fileIdx++ {
 		log.FnLog("begin to scan file(%d)...", fileIdx)
 		offset = 0
 		fName := t.GetFilepath(fileIdx)
 		var f *os.File
 		f, err = os.Open(fName)
 		if err != nil {
+			if errors.Is(err, os.ErrNotExist) {
+				// maybe some file id correspond no file
+				log.FnErrLog("file not exists: %s", fName)
+				continue
+			}
 			log.FnErrLog("open scanned file failed: %s", err.Error())
 			_ = f.Close()
 			return nil, err
@@ -199,45 +204,57 @@ func (t *FileMgr) Scan2Hash() (map[string]Entry, error) {
 	return res, nil
 }
 
-func (t *FileMgr) Merge(toMergeM map[string]Entry, idxStuffCh chan IndexStuff) error {
+func (t *FileMgr) Merge(toMergeM map[string]Entry, idxStuffCh chan IndexStuff) (int32, error) {
+	defer close(idxStuffCh)
+
 	var (
-		fName           = t.getNextName()
 		offset, lastOff int
 		mergeF          *os.File
 		mergeNext       int32 = 1
 		err             error
+		fName           = t.GetMergeFilepath(mergeNext)
+		mergedFiles     = []string{}
 	)
 
 	// the first merge file
 	mergeF, err = os.OpenFile(fName, os.O_CREATE|os.O_RDWR, 0666)
 	if err != nil {
-		return err
+		return 0, err
 	}
 	mergeNext++
 
 	for key, val := range toMergeM {
 		bEnt := EncodeEntry(val)
 		if int64(offset+len(bEnt)) > t.MaxFileSz {
+			log.FnLog("create merge file(%d)", mergeNext)
 			// need write next merge-file
 			_ = mergeF.Close()
-			fName = t.GetFilepath(mergeNext)
+			fName = t.GetMergeFilepath(mergeNext)
 			mergeF, err = os.OpenFile(fName, os.O_CREATE|os.O_RDWR, 0666)
 			if err != nil {
-				return err
+				return 0, err
 			}
+
+			offset = 0
+			lastOff = 0
+			mergeNext++
+			mergedFiles = append(mergedFiles, fName)
 		}
 
 		var written int
 		written, err = mergeF.WriteAt(bEnt, int64(offset))
 		if written != len(bEnt) {
-			// todo: delete all unfinished merge files
-			return fmt.Errorf("length of written byte[] is error, written: %d, need: %d", written, len(bEnt))
+			t.removeMergeFiles(mergeNext - 1)
+			return 0, fmt.Errorf("length of written byte[] is error, written: %d, need: %d", written, len(bEnt))
 		}
+
+		lastOff = offset
+		offset += written
 
 		var idxEnt IndexEntry
 		idxEnt.FileIdx = mergeNext - 1
 		idxEnt.Offset = lastOff
-		idxEnt.TStamp = int32(time.Now().Unix())
+		idxEnt.TStamp = val.TStamp
 		idxEnt.ValSz = int32(offset - lastOff - Header_size - len(key))
 
 		op := Update
@@ -246,13 +263,56 @@ func (t *FileMgr) Merge(toMergeM map[string]Entry, idxStuffCh chan IndexStuff) e
 		}
 
 		idxStuffCh <- NewIndexStuff(op, key, idxEnt)
-
 	}
 
 	_ = mergeF.Close()
-	return nil
+	return mergeNext - 1, nil
 }
 
 func (t *FileMgr) GetFilepath(fid int32) string {
 	return filepath.Join(t.dir, File_Prefix+strconv.Itoa(int(fid)))
+}
+
+func (t *FileMgr) GetMergeFilepath(fid int32) string {
+	return filepath.Join(t.dir, Merge_Prefix+strconv.Itoa(int(fid)))
+}
+
+func (t *FileMgr) RenameMergeFiles(mergeFid int32) error {
+	// rename files created by merging
+	err := t.renameMergeFiles(mergeFid)
+	if err != nil {
+		t.removeMergeFiles(mergeFid)
+		log.FnErrLog("rename merged files failed: %s, so remove deprecated files", err.Error())
+		return err
+	}
+
+	return nil
+}
+
+func (t *FileMgr) renameMergeFiles(mergeFid int32) error {
+	var err error
+	for i := int32(1); i <= mergeFid; i++ {
+		oldF := t.GetMergeFilepath(i)
+		newF := t.GetFilepath(i)
+
+		if err = os.Rename(oldF, newF); err != nil {
+			return err
+		}
+	}
+
+	return nil
+}
+
+func (t *FileMgr) removeMergeFiles(mergeFid int32) {
+	var err error
+	for i := int32(1); i <= mergeFid; i++ {
+		fName := t.GetMergeFilepath(i)
+
+		if err = os.Remove(fName); err != nil {
+			log.FnErrLog("remove deprecated merged files failed: %s", err.Error())
+			return
+		}
+	}
+
+	return
 }

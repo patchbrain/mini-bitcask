@@ -2,32 +2,50 @@ package bitcask
 
 import (
 	"encoding/json"
+	"errors"
 	"fmt"
+	"github.com/gofrs/flock"
 	"mini-bitcask/util/file"
 	"mini-bitcask/util/log"
-	"time"
+	"path"
+	"sync"
 )
 
 type Bitcask struct {
 	F     *FileMgr
 	Index *Index
-	Opt   *Option
+	Opt   Option
 	Dir   string
+	EndCh chan struct{}
+	fLock *flock.Flock
+
+	// fid of last time merge-end
+	LastMerge int32
 }
 
-func Open(dir string) *Bitcask {
+var (
+	GMerging int32 = 0 // is merging now? 0:no 1:yes
+)
+
+func Open(dir string, opt Option) *Bitcask {
 	log.FnDebug("into")
 	bc := new(Bitcask)
 
-	err := file.EnsureDir(dir, true)
+	err := file.EnsureDir(dir)
 	if err != nil {
 		log.FnErrLog("ensure dir(%s) failed: %s", dir, err.Error())
 		return nil
 	}
 
-	// todo: 检查是否有其他的Bitcask在使用该目录
+	// check maybe exists other bitcask using the dir
+	err = bc.tryLock()
+	if err != nil {
+		log.FnErrLog("lock failed: %s", err.Error())
+		return nil
+	}
 
-	opt := NewOption()
+	bc.Opt = opt
+
 	fMgr := NewFileMgr(dir, opt.MaxSingleFileSz)
 	_, err = fMgr.CreateFile(true)
 	if err != nil {
@@ -43,6 +61,27 @@ func Open(dir string) *Bitcask {
 	bc.Index = idx
 
 	return bc
+}
+
+// try to lock the specified path
+func (t *Bitcask) tryLock() error {
+	p := path.Join(t.Dir, ".lock")
+	t.fLock = flock.New(p)
+
+	locked, err := t.fLock.TryLock()
+	if err != nil {
+		return err
+	}
+
+	if locked {
+		return nil
+	}
+
+	return errors.New("file already locked")
+}
+
+func (t *Bitcask) ReleaseLock() error {
+	return t.fLock.Unlock()
 }
 
 func (t *Bitcask) Get(key string) []byte {
@@ -97,7 +136,7 @@ func (t *Bitcask) Set(key string, val interface{}) error {
 		fid int32
 	)
 
-	e := NewEntry(time.Now(), key, Value{Body: b})
+	e := NewEntry(key, Value{Body: b})
 
 	fid, err = t.F.Append(e)
 	if err != nil {
@@ -109,10 +148,30 @@ func (t *Bitcask) Set(key string, val interface{}) error {
 		FileIdx: fid,
 		ValSz:   valSz,
 		Offset:  t.F.LastOffset(),
-		TStamp:  0,
+		TStamp:  e.TStamp,
 	}
-	log.FnLog("set a index entry: %#v", idxE)
+	log.FnLog("set a index entry, key: %s,value: %#v", key, idxE)
 	t.Index.Add(key, idxE)
+
+	if GMerging == 0 && fid-t.LastMerge > t.Opt.MergeThreshold {
+		log.FnLog("begin to merge, cur point to next file")
+		GMerging = 1
+
+		// because of merging, cur point next
+		_, err = t.F.CreateFile(true)
+		if err != nil {
+			log.FnErrLog("because of merging, cur point next failed: %s", err.Error())
+			return err
+		}
+
+		go func() {
+			cErr := t.Merge()
+			if cErr != nil {
+				log.FnErrLog("exec merge failed: %s", cErr.Error())
+				return
+			}
+		}()
+	}
 
 	return nil
 }
@@ -136,15 +195,34 @@ func (t *Bitcask) Merge() error {
 		return fmt.Errorf("no need of merge")
 	}
 
+	var fid int32 // merge fid
+
+	defer func() { GMerging = 0 }()
+
 	toMergeM, err := t.F.Scan2Hash()
 	if err != nil {
+		log.FnErrLog("scan preview files 2 hashmap failed: %s", err.Error())
 		return err
 	}
 
-	// todo: 将数据全部merge到新文件中,启动Index的Merge过程,在写完文件后发送结束指令
-	go t.Index.UpdateForMerge()
-
-	for _, entry := range toMergeM {
-
+	var wg sync.WaitGroup
+	mergeIdxCh := make(chan IndexStuff, MergeIdxChSize)
+	wg.Add(1)
+	go t.Index.UpdateForMerge(mergeIdxCh, &wg)
+	fid, err = t.F.Merge(toMergeM, mergeIdxCh)
+	if err != nil {
+		log.FnErrLog("FileMgr merge failed: %s", err.Error())
+		return err
 	}
+
+	wg.Wait()
+
+	err = t.F.RenameMergeFiles(fid)
+	if err != nil {
+		log.FnErrLog("rename merged files failed: %s", err.Error())
+		return err
+	}
+
+	t.LastMerge += t.Opt.MergeThreshold
+	return nil
 }
