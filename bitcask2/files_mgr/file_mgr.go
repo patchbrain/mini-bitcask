@@ -3,6 +3,7 @@ package files_mgr
 import (
 	"github.com/sirupsen/logrus"
 	_const "mini-bitcask/bitcask2/const"
+	"mini-bitcask/bitcask2/model"
 	"path/filepath"
 	"sort"
 	"strconv"
@@ -71,17 +72,75 @@ func (f *FileMgr) LoadDfs() error {
 		f.dfs = append(f.dfs, df)
 	}
 
+	f.cur = f.dfs[len(f.dfs)-1]
+
 	for _, df := range f.dfs {
-		logrus.Infof("datafile name: %s", df.Name())
+		logrus.Infof("load datafile name: %s", df.Name())
 	}
 
 	return nil
 }
 
-func (f *FileMgr) Put(key, value []byte) (fileId int, offset uint32, err error) {
-	return 0, 0, err
+func (f *FileMgr) Put(key, value []byte) (fileId int, offset int64, err error) {
+	if f.cur == nil || f.cur.MaybeRotate() {
+		if f.cur != nil {
+			logrus.Infof("need rotate, now file id: %d, offset: %d", f.cur.FileId(), f.cur.Offset())
+		} else {
+			logrus.Infof("create the first file")
+		}
+
+		err = f.rotate()
+		if err != nil {
+			return 0, 0, err
+		}
+	}
+
+	isDel := value == nil
+
+	ent := model.NewEntry(key, value, isDel)
+	err = f.cur.Put(ent)
+	if err != nil {
+		return 0, 0, err
+	}
+
+	fileId = f.cur.FileId()
+	offset = f.cur.Offset() - ent.Len()
+	logrus.Infof("put a entry: %#v, entry beginning offset: %d, file id: %d", ent, offset, fileId)
+	return
+}
+
+func (f *FileMgr) Del(key []byte) (fileId int, offset int64, err error) {
+	if f.cur == nil {
+		return 0, 0, _const.NotWritableErr
+	}
+
+	return f.Put(key, nil)
+}
+
+func (f *FileMgr) MaxFileId() int {
+	if f.cur == nil {
+		return 0
+	}
+
+	return f.cur.FileId()
 }
 
 func (f *FileMgr) rotate() error {
+	nextFid := f.MaxFileId() + 1
+
+	curDf, err := NewDatafile(f.dir, nextFid, true, f.maxFileSize)
+	if err != nil {
+		return err
+	}
+
+	f.switchCurr(curDf)
 	return nil
+}
+
+func (f *FileMgr) switchCurr(newCurDf *Datafile) {
+	if f.cur != nil {
+		f.cur.AbandonWrite()
+	}
+
+	f.cur = newCurDf
 }

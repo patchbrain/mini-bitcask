@@ -49,8 +49,20 @@ func (df *Datafile) FileId() int {
 	return df.fId
 }
 
+func (df *Datafile) Offset() int64 {
+	return df.offset
+}
+
 func (df *Datafile) Name() string {
 	return _const.Datafile_prefix + strconv.Itoa(df.fId)
+}
+
+func (df *Datafile) MaybeRotate() bool {
+	if df.Offset() > int64(df.maxFileSize) {
+		return true
+	}
+
+	return false
 }
 
 func (df *Datafile) Put(entry model.Entry) error {
@@ -95,4 +107,26 @@ func (df *Datafile) ReadAt(offset, size int64) (model.Entry, error) {
 	}
 
 	return *e, nil
+}
+
+func (df *Datafile) Close() error {
+	var err error
+	if df.w != nil {
+		err = df.w.Sync()
+		if err != nil {
+			return err
+		}
+
+		err = df.w.Close()
+		if err != nil {
+			return err
+		}
+	}
+
+	return df.r.Close()
+}
+
+func (df *Datafile) AbandonWrite() {
+	df.w.Close()
+	df.w = nil
 }

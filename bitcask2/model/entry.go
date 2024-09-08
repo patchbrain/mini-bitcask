@@ -28,3 +28,9 @@ func NewEntry(key []byte, val []byte, del bool) Entry {
 	}
 	return ent
 }
+
+const EntryHeaderSize int64 = 20
+
+func (e *Entry) Len() int64 {
+	return EntryHeaderSize + int64(e.KSize) + int64(e.VSize)
+}

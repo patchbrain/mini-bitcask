@@ -24,6 +24,11 @@ func TestDatafile_Put_Get(t *testing.T) {
 	t.Logf("entry: %#v", entry)
 }
 
+func getFileMgr(dir string) *FileMgr {
+	fm := NewFileMgr(dir, 10000)
+	return fm
+}
+
 func TestFileMgr_LoadDfs(t *testing.T) {
 	pwd, _ := os.Getwd()
 	dir := filepath.Join(pwd, "bc2")
@@ -40,7 +45,19 @@ func TestFileMgr_LoadDfs(t *testing.T) {
 		}
 	}()
 
-	fm := NewFileMgr(dir, 10000)
-	err := fm.LoadDfs()
+	err := getFileMgr(dir).LoadDfs()
 	require.NoError(t, err)
+}
+
+func TestFileMgr_Put(t *testing.T) {
+	pwd, _ := os.Getwd()
+	dir := filepath.Join(pwd, "bc2")
+	os.MkdirAll(dir, 0666)
+	fm := getFileMgr(dir)
+
+	fid, off, err := fm.Put([]byte("put_key"), []byte("put_my_value"))
+	t.Log(fid, off, err)
+
+	fid, off, err = fm.Del([]byte("put_key"))
+	t.Log(fid, off, err)
 }
