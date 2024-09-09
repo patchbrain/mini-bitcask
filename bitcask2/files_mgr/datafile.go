@@ -11,17 +11,17 @@ import (
 )
 
 type Datafile struct {
-	fId         int
+	fId         int32
 	r           *os.File
 	w           *os.File
 	offset      int64
 	maxFileSize int
 }
 
-func NewDatafile(dir string, fileId int, writable bool, maxFileSz int) (*Datafile, error) {
+func NewDatafile(dir string, fileId int32, writable bool, maxFileSz int) (*Datafile, error) {
 	df := new(Datafile)
 
-	fName := _const.Datafile_prefix + strconv.Itoa(fileId)
+	fName := _const.Datafile_prefix + strconv.Itoa(int(fileId))
 	full := filepath.Join(dir, fName)
 	var err error
 
@@ -45,7 +45,7 @@ func NewDatafile(dir string, fileId int, writable bool, maxFileSz int) (*Datafil
 	return df, nil
 }
 
-func (df *Datafile) FileId() int {
+func (df *Datafile) FileId() int32 {
 	return df.fId
 }
 
@@ -54,7 +54,7 @@ func (df *Datafile) Offset() int64 {
 }
 
 func (df *Datafile) Name() string {
-	return _const.Datafile_prefix + strconv.Itoa(df.fId)
+	return _const.Datafile_prefix + strconv.Itoa(int(df.fId))
 }
 
 func (df *Datafile) MaybeRotate() bool {

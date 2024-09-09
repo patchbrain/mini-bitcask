@@ -1,5 +1,7 @@
 package model
 
+import _const "mini-bitcask/bitcask2/const"
+
 type Entry struct {
 	Crc    uint32
 	TStamp uint64
@@ -29,8 +31,6 @@ func NewEntry(key []byte, val []byte, del bool) Entry {
 	return ent
 }
 
-const EntryHeaderSize int64 = 20
-
 func (e *Entry) Len() int64 {
-	return EntryHeaderSize + int64(e.KSize) + int64(e.VSize)
+	return _const.EntryHeaderSize + int64(e.KSize) + int64(e.VSize)
 }

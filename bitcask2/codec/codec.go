@@ -2,11 +2,14 @@ package codec
 
 import (
 	"encoding/binary"
+	_const "mini-bitcask/bitcask2/const"
 	"mini-bitcask/bitcask2/model"
 )
 
+var headerSize = uint32(_const.EntryHeaderSize)
+
 func Encode(e model.Entry) []byte {
-	l := 20 + e.KSize + e.VSize // 4(kSize) + 4(vSize) + 4(crc) + 8(timestamp) = 20
+	l := headerSize + e.KSize + e.VSize // 4(kSize) + 4(vSize) + 4(crc) + 8(timestamp) = 20
 	b := make([]byte, 0, l)
 	be := binary.BigEndian
 	b = be.AppendUint32(b, e.Crc)
@@ -27,7 +30,7 @@ func Decode(data []byte) *model.Entry {
 	var e model.Entry
 	be := binary.BigEndian
 
-	if len(data) < 20 {
+	if len(data) < int(headerSize) {
 		return nil
 	}
 
@@ -37,18 +40,18 @@ func Decode(data []byte) *model.Entry {
 	e.VSize = be.Uint32(data[16:20])
 
 	// check all length
-	expectedLen := int(20 + e.KSize + e.VSize)
+	expectedLen := int(headerSize + e.KSize + e.VSize)
 	if len(data) < expectedLen {
 		return nil
 	}
 
 	// key
 	e.Key = make([]byte, e.KSize)
-	copy(e.Key, data[8:8+e.KSize])
+	copy(e.Key, data[headerSize:headerSize+e.KSize])
 
 	// value.Body
-	e.Value.Body = make([]byte, e.VSize)
-	valAt := 8 + e.KSize
+	e.Value.Body = make([]byte, e.VSize-1)
+	valAt := headerSize + e.KSize
 	copy(e.Value.Body, data[valAt:valAt+e.VSize-1])
 
 	// value.Tomb

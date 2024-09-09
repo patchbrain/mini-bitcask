@@ -55,9 +55,9 @@ func TestFileMgr_Put(t *testing.T) {
 	os.MkdirAll(dir, 0666)
 	fm := getFileMgr(dir)
 
-	fid, off, err := fm.Put([]byte("put_key"), []byte("put_my_value"))
-	t.Log(fid, off, err)
+	fid, off, valSz, err := fm.Put([]byte("put_key"), []byte("put_my_value"))
+	t.Log(fid, off, valSz, err)
 
-	fid, off, err = fm.Del([]byte("put_key"))
-	t.Log(fid, off, err)
+	fid, off, valSz, err = fm.Del([]byte("put_key"))
+	t.Log(fid, off, valSz, err)
 }

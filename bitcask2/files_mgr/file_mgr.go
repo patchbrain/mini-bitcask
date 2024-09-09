@@ -64,7 +64,7 @@ func (f *FileMgr) LoadDfs() error {
 			writable = true
 		}
 
-		df, err := NewDatafile(f.dir, fid, writable, f.maxFileSize)
+		df, err := NewDatafile(f.dir, int32(fid), writable, f.maxFileSize)
 		if err != nil {
 			return err
 		}
@@ -81,7 +81,7 @@ func (f *FileMgr) LoadDfs() error {
 	return nil
 }
 
-func (f *FileMgr) Put(key, value []byte) (fileId int, offset int64, err error) {
+func (f *FileMgr) Put(key, value []byte) (fileId int32, offset int64, valueSz int64, err error) {
 	if f.cur == nil || f.cur.MaybeRotate() {
 		if f.cur != nil {
 			logrus.Infof("need rotate, now file id: %d, offset: %d", f.cur.FileId(), f.cur.Offset())
@@ -91,7 +91,7 @@ func (f *FileMgr) Put(key, value []byte) (fileId int, offset int64, err error) {
 
 		err = f.rotate()
 		if err != nil {
-			return 0, 0, err
+			return 0, 0, 0, err
 		}
 	}
 
@@ -100,24 +100,43 @@ func (f *FileMgr) Put(key, value []byte) (fileId int, offset int64, err error) {
 	ent := model.NewEntry(key, value, isDel)
 	err = f.cur.Put(ent)
 	if err != nil {
-		return 0, 0, err
+		return 0, 0, 0, err
 	}
 
 	fileId = f.cur.FileId()
 	offset = f.cur.Offset() - ent.Len()
+	valueSz = ent.Len()
 	logrus.Infof("put a entry: %#v, entry beginning offset: %d, file id: %d", ent, offset, fileId)
 	return
 }
 
-func (f *FileMgr) Del(key []byte) (fileId int, offset int64, err error) {
-	if f.cur == nil {
-		return 0, 0, _const.NotWritableErr
+func (f *FileMgr) Get(fid int32, offset, valSz int64) ([]byte, error) {
+	ent, err := f.GetDatafileById(fid).ReadAt(offset, valSz)
+	if err != nil {
+		return nil, err
 	}
 
-	return f.Put(key, nil)
+	if ent.Len() != valSz {
+		return nil, _const.ReadEntryErr
+	}
+
+	return ent.Value.Body, nil
 }
 
-func (f *FileMgr) MaxFileId() int {
+func (f *FileMgr) GetDatafileById(fid int32) *Datafile {
+	return f.dfs[fid-1]
+}
+
+func (f *FileMgr) Del(key []byte) (err error) {
+	if f.cur == nil {
+		return _const.NotWritableErr
+	}
+
+	_, _, _, err = f.Put(key, nil)
+	return err
+}
+
+func (f *FileMgr) MaxFileId() int32 {
 	if f.cur == nil {
 		return 0
 	}
@@ -133,6 +152,7 @@ func (f *FileMgr) rotate() error {
 		return err
 	}
 
+	f.dfs = append(f.dfs, curDf)
 	f.switchCurr(curDf)
 	return nil
 }
