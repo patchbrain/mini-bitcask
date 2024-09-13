@@ -89,7 +89,7 @@ func (f *FileMgr) Put(key, value []byte) (fileId int32, offset int64, valueSz in
 			logrus.Infof("create the first file")
 		}
 
-		err = f.rotate()
+		err = f.Rotate()
 		if err != nil {
 			return 0, 0, 0, err
 		}
@@ -124,7 +124,12 @@ func (f *FileMgr) Get(fid int32, offset, valSz int64) ([]byte, error) {
 }
 
 func (f *FileMgr) GetDatafileById(fid int32) *Datafile {
+	// fixme: file id不一定是连续的
 	return f.dfs[fid-1]
+}
+
+func (f *FileMgr) DataFiles() []*Datafile {
+	return f.dfs
 }
 
 func (f *FileMgr) Del(key []byte) (err error) {
@@ -144,7 +149,7 @@ func (f *FileMgr) MaxFileId() int32 {
 	return f.cur.FileId()
 }
 
-func (f *FileMgr) rotate() error {
+func (f *FileMgr) Rotate() error {
 	nextFid := f.MaxFileId() + 1
 
 	curDf, err := NewDatafile(f.dir, nextFid, true, f.maxFileSize)
@@ -155,6 +160,10 @@ func (f *FileMgr) rotate() error {
 	f.dfs = append(f.dfs, curDf)
 	f.switchCurr(curDf)
 	return nil
+}
+
+func (f *FileMgr) Dir() string {
+	return f.dir
 }
 
 func (f *FileMgr) switchCurr(newCurDf *Datafile) {

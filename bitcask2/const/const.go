@@ -6,6 +6,8 @@ const Datafile_prefix = "data_"
 
 const EntryHeaderSize int64 = 20
 
+const MergeDir = "merge_dir"
+
 var (
 	FileAlreadyExistsErr = errors.New("file already exists, can't create again")
 	NotWritableErr       = errors.New("not writable datafile")
@@ -17,4 +19,5 @@ var (
 	NoIndexErr           = errors.New("no index")
 	FileLockErr          = errors.New("can't get file lock")
 	ReadEntryErr         = errors.New("read entry bytes error")
+	NoFileToMergeErr     = errors.New("has no file to merge")
 )

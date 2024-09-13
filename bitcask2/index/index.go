@@ -41,6 +41,10 @@ type Indexer interface {
 	Add(Key, IndexEntry) error
 	Get(Key) (IndexEntry, error)
 	Del(Key) error
+	Copy() Indexer
+	Keys() []Key
+	Foreach(fn Callback) error
+	Exist(Key) bool
 }
 
 type Key string
@@ -109,4 +113,48 @@ func (i *indexer) Del(key Key) error {
 
 	i.index[key] = IndexEntry{}
 	return nil
+}
+
+func (i *indexer) Copy() Indexer {
+	i.mu.Lock()
+	defer i.mu.Unlock()
+
+	indexM := make(map[Key]IndexEntry, len(i.index))
+	for k, v := range i.index {
+		indexM[k] = v
+	}
+
+	return &indexer{index: indexM}
+}
+
+func (i *indexer) Keys() []Key {
+	i.mu.Lock()
+	defer i.mu.Unlock()
+
+	keys := make([]Key, len(i.index))
+	for key := range i.index {
+		keys = append(keys, key)
+	}
+
+	return keys
+}
+
+type Callback func(Key, IndexEntry) error
+
+func (i *indexer) Foreach(fn Callback) error {
+	i.mu.Lock()
+	defer i.mu.Unlock()
+
+	for k, v := range i.index {
+		err := fn(k, v)
+		return err
+	}
+}
+
+func (i *indexer) Exist(key Key) bool {
+	i.mu.Lock()
+	defer i.mu.Unlock()
+
+	_, ok := i.index[key]
+	return ok
 }

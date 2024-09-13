@@ -2,11 +2,15 @@ package bitcask2
 
 import (
 	"errors"
+	"fmt"
 	"github.com/gofrs/flock"
+	"github.com/sirupsen/logrus"
 	_const "mini-bitcask/bitcask2/const"
 	"mini-bitcask/bitcask2/files_mgr"
 	"mini-bitcask/bitcask2/index"
+	"os"
 	"path/filepath"
+	"strconv"
 	"sync"
 )
 
@@ -53,6 +57,8 @@ type Bitcask struct {
 	flock *flock.Flock
 	// isMerging, true: merging, false conversely
 	isMerging bool
+	// mergeTrigFid, file id of merge triggering moment
+	mergeTrigFid int32
 }
 
 func (b *Bitcask) Put(key, value []byte) error {
@@ -109,6 +115,161 @@ func (b *Bitcask) Get(key []byte) (val []byte, err error) {
 	return val, nil
 }
 
-func (b *Bitcask) Merge(key []byte) (val []byte, err error) {
-	return nil, err
+func (b *Bitcask) Merge() (err error) {
+	b.mu.Lock()
+	logrus.Info("Starting merge operation")
+
+	if b.fm.MaxFileId() <= 0 {
+		b.mu.Unlock()
+		logrus.Warn("No files to merge")
+		return _const.NoFileToMergeErr
+	}
+
+	b.mergeTrigFid = b.fm.MaxFileId() // fileId of merge triggering moment
+
+	if err = b.fm.Rotate(); err != nil {
+		b.mu.Unlock()
+		logrus.Errorf("Failed to rotate file: %v", err)
+		return err
+	}
+
+	// 保留当前索引的快照，用于创建新的数据文件
+	curIndex := b.index.Copy()
+	b.mu.Unlock()
+
+	mFilePaths, mergeIdx, err := b.genFilesByIndexer(curIndex)
+	if err != nil {
+		logrus.Errorf("Failed to generate new data files from index: %v", err)
+		return err
+	}
+	logrus.Infof("Generated new merged data files: %v", mFilePaths)
+
+	err = b.replaceOldFiles(mFilePaths)
+	if err != nil {
+		logrus.Errorf("Failed to replace old data files: %v", err)
+		return err
+	}
+	logrus.Info("Successfully replaced old data files with new merged files")
+
+	err = b.mergeWithIndex(mergeIdx)
+	if err != nil {
+		logrus.Errorf("Failed to merge with new index: %v", err)
+		return err
+	}
+	logrus.Info("Successfully merged with new indexer")
+
+	return nil
+}
+
+func (b *Bitcask) genFilesByIndexer(indexer index.Indexer) ([]string, index.Indexer, error) {
+	keys := indexer.Keys()
+
+	mergeDir := _const.MergeDir
+	mergeB, err := Open(mergeDir)
+	if err != nil {
+		return []string{}, nil, err
+	}
+
+	defer func() {
+		// todo: mergeB.Close()
+		// todo: del all files of bitcask for merge
+	}()
+
+	for _, key := range keys {
+		v, err := b.Get([]byte(key))
+		if err != nil {
+			return []string{}, nil, err
+		}
+
+		err = mergeB.Put([]byte(key), v)
+		if err != nil {
+			return []string{}, nil, err
+		}
+	}
+
+	dfs := mergeB.fm.DataFiles()
+	paths := make([]string, 0, len(dfs)) // all paths need rename
+	for _, df := range dfs {
+		paths = append(paths, filepath.Join(mergeDir, df.Name()))
+	}
+
+	newIndex := mergeB.index.Copy()
+
+	return paths, newIndex, nil
+}
+
+func (b *Bitcask) replaceOldFiles(newPs []string) error {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+
+	curDir := b.fm.Dir()
+
+	var oldFiles []string
+	for i := 0; i < int(b.mergeTrigFid); i++ {
+		fName := _const.Datafile_prefix + strconv.Itoa(i)
+		filePath := filepath.Join(curDir, fName)
+		_, err := os.Stat(filePath)
+		if err != nil {
+			if os.IsNotExist(err) {
+				// 文件不存在，可能文件 ID 不连续，继续
+				continue
+			}
+			return fmt.Errorf("failed to stat old file %s: %v", filePath, err)
+		}
+		oldFiles = append(oldFiles, filePath)
+	}
+
+	for _, oldFile := range oldFiles {
+		err := os.Remove(oldFile)
+		if err != nil {
+			return fmt.Errorf("failed to remove old file %s: %v", oldFile, err)
+		}
+	}
+
+	for _, newP := range newPs {
+		fName := filepath.Base(newP)
+		finalName := filepath.Join(curDir, fName)
+		err := os.Rename(newP, finalName)
+		if err != nil {
+			return fmt.Errorf("failed to rename new file %s: %s", newP, err.Error())
+		}
+	}
+
+	return nil
+}
+
+// merge specific indexer with b.index
+func (b *Bitcask) mergeWithIndex(mergeIdx index.Indexer) error {
+	err := mergeIdx.Foreach(func(key index.Key, entry index.IndexEntry) error {
+		if !b.index.Exist(key) {
+			cErr := b.index.Add(key, entry)
+			if cErr != nil {
+				return cErr
+			}
+
+			return nil
+		}
+
+		// if b.index has the key, check the file id
+		ent, cErr := b.index.Get(key)
+		if cErr != nil {
+			return cErr
+		}
+
+		if ent.FileId > b.mergeTrigFid {
+			// indicate that the index is added after merge moment
+			return nil
+		} else {
+			if cErr = b.index.Add(key, entry); cErr != nil {
+				return cErr
+			}
+		}
+
+		return nil
+	})
+	if err != nil {
+		return err
+	}
+
+	return nil
 }
