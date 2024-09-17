@@ -8,9 +8,9 @@ import (
 	_const "mini-bitcask/bitcask2/const"
 	"mini-bitcask/bitcask2/files_mgr"
 	"mini-bitcask/bitcask2/index"
+	"mini-bitcask/util/file"
 	"os"
 	"path/filepath"
-	"strconv"
 	"sync"
 )
 
@@ -109,6 +109,7 @@ func (b *Bitcask) Get(key []byte) (val []byte, err error) {
 
 	val, err = b.fm.Get(ie.FileId, ie.Offset, ie.ValueSz)
 	if err != nil {
+		logrus.Errorf("Bitcask Get failed:%s, key: %s, index entry: %#v", err.Error(), string(key), ie)
 		return nil, err
 	}
 
@@ -117,7 +118,11 @@ func (b *Bitcask) Get(key []byte) (val []byte, err error) {
 
 func (b *Bitcask) Merge() (err error) {
 	b.mu.Lock()
-	logrus.Info("Starting merge operation")
+
+	b.isMerging = true
+	defer func() {
+		b.isMerging = false
+	}()
 
 	if b.fm.MaxFileId() <= 0 {
 		b.mu.Unlock()
@@ -126,6 +131,7 @@ func (b *Bitcask) Merge() (err error) {
 	}
 
 	b.mergeTrigFid = b.fm.MaxFileId() // fileId of merge triggering moment
+	logrus.Infof("Starting merge operation, merge trigger fid: %d", b.mergeTrigFid)
 
 	if err = b.fm.Rotate(); err != nil {
 		b.mu.Unlock()
@@ -156,28 +162,63 @@ func (b *Bitcask) Merge() (err error) {
 		logrus.Errorf("Failed to merge with new index: %v", err)
 		return err
 	}
+
+	b.fm.Close()
+	if err != nil {
+		logrus.Errorf("close files manager failed: %v", err)
+		return err
+	}
+
+	err = b.fm.LoadDfs()
+	if err != nil {
+		logrus.Errorf("load DFs after merge failed: %v", err)
+		return err
+	}
+
 	logrus.Info("Successfully merged with new indexer")
+
+	return nil
+}
+
+func (b *Bitcask) Close() error {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+
+	var err error
+	err = b.fm.CloseDfs(-1)
+	if err != nil {
+		return err
+	}
+
+	err = b.flock.Unlock()
+	if err != nil {
+		return err
+	}
 
 	return nil
 }
 
 func (b *Bitcask) genFilesByIndexer(indexer index.Indexer) ([]string, index.Indexer, error) {
 	keys := indexer.Keys()
+	logrus.Infof("get indexer's keys: %#v", keys)
 
-	mergeDir := _const.MergeDir
+	dir := filepath.Dir(b.fm.Dir())
+	mergeDir := filepath.Join(dir, _const.MergeDir)
+	if err := file.EnsureDir(mergeDir); err != nil {
+		return nil, nil, err
+	}
+
 	mergeB, err := Open(mergeDir)
 	if err != nil {
 		return []string{}, nil, err
 	}
 
-	defer func() {
-		// todo: mergeB.Close()
-		// todo: del all files of bitcask for merge
-	}()
+	defer mergeB.Close()
 
 	for _, key := range keys {
 		v, err := b.Get([]byte(key))
 		if err != nil {
+			logrus.Errorf("get kv failed: %s", err.Error())
 			return []string{}, nil, err
 		}
 
@@ -205,17 +246,17 @@ func (b *Bitcask) replaceOldFiles(newPs []string) error {
 	curDir := b.fm.Dir()
 
 	var oldFiles []string
-	for i := 0; i < int(b.mergeTrigFid); i++ {
-		fName := _const.Datafile_prefix + strconv.Itoa(i)
-		filePath := filepath.Join(curDir, fName)
-		_, err := os.Stat(filePath)
-		if err != nil {
-			if os.IsNotExist(err) {
-				// 文件不存在，可能文件 ID 不连续，继续
-				continue
-			}
-			return fmt.Errorf("failed to stat old file %s: %v", filePath, err)
+	var err error
+
+	for _, df := range b.fm.DataFiles() {
+		if df.FileId() > b.mergeTrigFid {
+			continue
 		}
+
+		if err = df.Close(); err != nil {
+			return err
+		}
+		filePath := filepath.Join(curDir, df.Name())
 		oldFiles = append(oldFiles, filePath)
 	}
 
@@ -244,32 +285,40 @@ func (b *Bitcask) mergeWithIndex(mergeIdx index.Indexer) error {
 		if !b.index.Exist(key) {
 			cErr := b.index.Add(key, entry)
 			if cErr != nil {
+				logrus.Errorf("index.Add failed: %s", cErr.Error())
 				return cErr
 			}
 
 			return nil
 		}
 
-		// if b.index has the key, check the file id
+		// if exists key in b.index, check the file id whether greater than b.mergeTrigFid
 		ent, cErr := b.index.Get(key)
 		if cErr != nil {
+			logrus.Errorf("index.Get failed: %s", cErr.Error())
 			return cErr
 		}
 
 		if ent.FileId > b.mergeTrigFid {
-			// indicate that the index is added after merge moment
+			// the index is after merge trigger moment
 			return nil
 		} else {
-			if cErr = b.index.Add(key, entry); cErr != nil {
+			logrus.Infof("merge index, key: %s, entry: %#v", string(key), entry)
+			cErr = b.index.Add(key, entry)
+			if cErr != nil {
+				logrus.Errorf("index.Add failed: %s", cErr.Error())
 				return cErr
 			}
 		}
 
 		return nil
 	})
+
 	if err != nil {
+		logrus.Errorf("mergeWithIndex failed: %s", err.Error())
 		return err
 	}
 
+	logrus.Info("Successfully merged index with mergeIdx")
 	return nil
 }

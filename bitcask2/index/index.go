@@ -131,7 +131,7 @@ func (i *indexer) Keys() []Key {
 	i.mu.Lock()
 	defer i.mu.Unlock()
 
-	keys := make([]Key, len(i.index))
+	keys := make([]Key, 0, len(i.index))
 	for key := range i.index {
 		keys = append(keys, key)
 	}
@@ -145,10 +145,14 @@ func (i *indexer) Foreach(fn Callback) error {
 	i.mu.Lock()
 	defer i.mu.Unlock()
 
+	var err error
 	for k, v := range i.index {
-		err := fn(k, v)
-		return err
+		if err = fn(k, v); err != nil {
+			return err
+		}
 	}
+
+	return nil
 }
 
 func (i *indexer) Exist(key Key) bool {

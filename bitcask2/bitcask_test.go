@@ -1,13 +1,66 @@
 package bitcask2
 
 import (
+	"fmt"
+	"github.com/sirupsen/logrus"
 	"github.com/stretchr/testify/require"
 	"math/rand"
 	"mini-bitcask/util/strings"
 	"os"
 	"path/filepath"
+	"runtime"
 	"testing"
 )
+
+func init() {
+	// 创建一个新的 Logger 实例
+	log := logrus.New()
+
+	// 启用 ReportCaller 以记录文件名和行号
+	log.SetReportCaller(true)
+
+	// 设置日志格式为 TextFormatter 并自定义 Caller 信息
+	log.SetFormatter(&logrus.TextFormatter{
+		FullTimestamp: true,
+		CallerPrettyfier: func(frame *runtime.Frame) (function string, file string) {
+			// 仅返回文件名和行号
+			return "", fmt.Sprintf("%s:%d", filepath.Base(frame.File), frame.Line)
+		},
+	})
+
+	// 将日志输出到文件而不是标准输出
+	file, err := os.OpenFile("bitcask.log", os.O_CREATE|os.O_WRONLY|os.O_TRUNC, 0666)
+	if err == nil {
+		log.SetOutput(file)
+	} else {
+		log.Warn("Failed to log to file, using default stderr")
+	}
+
+	// 设置日志级别
+	log.SetLevel(logrus.InfoLevel)
+
+	// 全局设置 logrus 的标准 logger
+	logrus.SetFormatter(log.Formatter)
+	logrus.SetReportCaller(log.ReportCaller)
+	logrus.SetOutput(log.Out)
+	logrus.SetLevel(logrus.GetLevel())
+}
+
+func putValues(t *testing.T, b *Bitcask, num int) (sample map[string][]byte, err error) {
+	sample = make(map[string][]byte, num)
+	for i := 0; i < num; i++ {
+		key := strings.GetRandomStr(rand.Intn(20) + 1)
+		value := strings.GetRandomStr(rand.Intn(100) + 1)
+		err = b.Put([]byte(key), []byte(value))
+		require.NoError(t, err)
+
+		if rand.Float64() < 0.1 {
+			sample[key] = []byte(value)
+		}
+	}
+
+	return
+}
 
 func TestBitcask_Put(t *testing.T) {
 	pwd, _ := os.Getwd()
@@ -37,4 +90,35 @@ func TestBitcask_Put(t *testing.T) {
 		require.NoError(t, err)
 		require.Equal(t, string(v), string(val))
 	}
+}
+
+func TestMerge(t *testing.T) {
+	pwd, _ := os.Getwd()
+	dir := filepath.Join(pwd, "bc_test")
+	os.MkdirAll(dir, 0666)
+
+	b, err := Open(dir, NewOption(WithMaxFileSz(1024*5)))
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	check, err := putValues(t, b, 1000)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	if err = b.Merge(); err != nil {
+		t.Fatal(err)
+	}
+
+	for k, v := range check {
+		actual, err := b.Get([]byte(k))
+		if err != nil {
+			t.Fatalf("get kv failed: %s, key: %s", err.Error(), k)
+		}
+
+		require.Equal(t, string(v), string(actual))
+	}
+
+	return
 }

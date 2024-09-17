@@ -2,6 +2,7 @@ package files_mgr
 
 import (
 	"github.com/sirupsen/logrus"
+	"math"
 	_const "mini-bitcask/bitcask2/const"
 	"mini-bitcask/bitcask2/model"
 	"path/filepath"
@@ -22,6 +23,9 @@ type FileMgr struct {
 
 	// maxFileSize, if cur's file size exceed this, should rotate
 	maxFileSize int
+
+	// fid2arrIdx, value: dfs's index, key: fild id
+	fid2arrIdx map[int32]int
 }
 
 func NewFileMgr(dir string, maxFileSize int) *FileMgr {
@@ -56,6 +60,12 @@ func (f *FileMgr) LoadDfs() error {
 	}
 
 	sort.Ints(fids) // asc order
+
+	err = f.CloseDfs(-1)
+	if err != nil {
+		return err
+	}
+
 	f.dfs = make([]*Datafile, 0, len(fids))
 
 	for i, fid := range fids {
@@ -111,21 +121,28 @@ func (f *FileMgr) Put(key, value []byte) (fileId int32, offset int64, valueSz in
 }
 
 func (f *FileMgr) Get(fid int32, offset, valSz int64) ([]byte, error) {
-	ent, err := f.GetDatafileById(fid).ReadAt(offset, valSz)
+	ent, err := f.GetDatafileByFid(fid).ReadAt(offset, valSz)
 	if err != nil {
 		return nil, err
 	}
 
 	if ent.Len() != valSz {
+		logrus.Errorf("actual entry's value len(%d) not equal to valSz(%d)", ent.Len(), valSz)
 		return nil, _const.ReadEntryErr
 	}
 
 	return ent.Value.Body, nil
 }
 
-func (f *FileMgr) GetDatafileById(fid int32) *Datafile {
-	// fixme: file id不一定是连续的
-	return f.dfs[fid-1]
+func (f *FileMgr) GetDatafileByFid(fid int32) *Datafile {
+	if f.fid2arrIdx == nil {
+		f.fid2arrIdx = make(map[int32]int, len(f.dfs))
+		for i, df := range f.dfs {
+			f.fid2arrIdx[df.FileId()] = i
+		}
+	}
+
+	return f.dfs[f.fid2arrIdx[fid]]
 }
 
 func (f *FileMgr) DataFiles() []*Datafile {
@@ -138,6 +155,35 @@ func (f *FileMgr) Del(key []byte) (err error) {
 	}
 
 	_, _, _, err = f.Put(key, nil)
+	return err
+}
+
+// CloseDfs if maxFid = -1, no limit
+func (f *FileMgr) CloseDfs(maxFid int32) error {
+	var err error
+	if maxFid == -1 {
+		maxFid = math.MaxInt32
+	}
+
+	for _, df := range f.dfs {
+		if df.FileId() > maxFid {
+			continue
+		}
+
+		if err = df.Close(); err != nil {
+			return err
+		}
+	}
+
+	return nil
+}
+
+func (f *FileMgr) Close() error {
+	err := f.CloseDfs(-1)
+	f.fid2arrIdx = nil
+	f.dfs = nil
+	f.cur = nil
+
 	return err
 }
 

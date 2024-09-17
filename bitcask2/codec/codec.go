@@ -2,6 +2,7 @@ package codec
 
 import (
 	"encoding/binary"
+	"github.com/sirupsen/logrus"
 	_const "mini-bitcask/bitcask2/const"
 	"mini-bitcask/bitcask2/model"
 )
@@ -31,6 +32,7 @@ func Decode(data []byte) *model.Entry {
 	be := binary.BigEndian
 
 	if len(data) < int(headerSize) {
+		logrus.Errorf("decode bytes failed: data.len(%d) < headerSize", len(data))
 		return nil
 	}
 
@@ -42,6 +44,7 @@ func Decode(data []byte) *model.Entry {
 	// check all length
 	expectedLen := int(headerSize + e.KSize + e.VSize)
 	if len(data) < expectedLen {
+		logrus.Errorf("decode bytes failed: data.len(%d) < expectedLen(%d)", len(data), expectedLen)
 		return nil
 	}
 
