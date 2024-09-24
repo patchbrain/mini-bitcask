@@ -58,6 +58,6 @@ func TestFileMgr_Put(t *testing.T) {
 	fid, off, valSz, err := fm.Put([]byte("put_key"), []byte("put_my_value"))
 	t.Log(fid, off, valSz, err)
 
-	fid, off, valSz, err = fm.Del([]byte("put_key"))
+	err = fm.Del([]byte("put_key"))
 	t.Log(fid, off, valSz, err)
 }

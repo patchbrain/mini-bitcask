@@ -131,6 +131,11 @@ func (f *FileMgr) Get(fid int32, offset, valSz int64) ([]byte, error) {
 		return nil, _const.ReadEntryErr
 	}
 
+	if ent.Value.Tomb == '1' {
+		// indicates the kv is deleted
+		return nil, nil
+	}
+
 	return ent.Value.Body, nil
 }
 

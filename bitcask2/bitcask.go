@@ -121,6 +121,11 @@ func (b *Bitcask) Merge() (err error) {
 
 	b.isMerging = true
 	defer func() {
+		// clean merge dir
+		dir := filepath.Dir(b.fm.Dir())
+		mergeDir := filepath.Join(dir, _const.MergeDir)
+		_ = os.RemoveAll(mergeDir)
+
 		b.isMerging = false
 	}()
 
@@ -139,7 +144,7 @@ func (b *Bitcask) Merge() (err error) {
 		return err
 	}
 
-	// 保留当前索引的快照，用于创建新的数据文件
+	// get a screenshot of indexer, to create new data files
 	curIndex := b.index.Copy()
 	b.mu.Unlock()
 
@@ -220,6 +225,10 @@ func (b *Bitcask) genFilesByIndexer(indexer index.Indexer) ([]string, index.Inde
 		if err != nil {
 			logrus.Errorf("get kv failed: %s", err.Error())
 			return []string{}, nil, err
+		}
+
+		if v == nil {
+			continue
 		}
 
 		err = mergeB.Put([]byte(key), v)

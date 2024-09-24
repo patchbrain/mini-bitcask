@@ -122,3 +122,81 @@ func TestMerge(t *testing.T) {
 
 	return
 }
+
+func TestMergeAndPut(t *testing.T) {
+	pwd, _ := os.Getwd()
+	dir := filepath.Join(pwd, "bc_test")
+	os.MkdirAll(dir, 0666)
+
+	b, err := Open(dir, NewOption(WithMaxFileSz(1024*5)))
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	check, err := putValues(t, b, 1000)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	go func() {
+		if err = b.Merge(); err != nil {
+			t.Fatal(err)
+		}
+	}()
+
+	go func() {
+		if err = b.Put([]byte("when_merge"), []byte("when_merge_value")); err != nil {
+			t.Fatal(err)
+		}
+	}()
+
+	check["when_merge"] = []byte("when_merge_value")
+	for k, v := range check {
+		actual, err := b.Get([]byte(k))
+		if err != nil {
+			t.Fatalf("get kv failed: %s, key: %s", err.Error(), k)
+		}
+
+		require.Equal(t, string(v), string(actual))
+	}
+
+	return
+}
+
+func TestMergeAfterDel(t *testing.T) {
+	pwd, _ := os.Getwd()
+	dir := filepath.Join(pwd, "bc_test")
+	os.MkdirAll(dir, 0666)
+
+	b, err := Open(dir, NewOption(WithMaxFileSz(1024*5)))
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	check, err := putValues(t, b, 1000)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	var delKey string
+	for k := range check {
+		delKey = k
+		if err = b.Del([]byte(k)); err != nil {
+			t.Fatal(err)
+		}
+		break
+	}
+
+	if err = b.Merge(); err != nil {
+		t.Fatal(err)
+	}
+
+	v, err := b.Get([]byte(delKey))
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	require.Nil(t, v)
+
+	return
+}
