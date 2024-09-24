@@ -13,13 +13,10 @@ import (
 )
 
 func init() {
-	// 创建一个新的 Logger 实例
 	log := logrus.New()
 
-	// 启用 ReportCaller 以记录文件名和行号
 	log.SetReportCaller(true)
 
-	// 设置日志格式为 TextFormatter 并自定义 Caller 信息
 	log.SetFormatter(&logrus.TextFormatter{
 		FullTimestamp: true,
 		CallerPrettyfier: func(frame *runtime.Frame) (function string, file string) {
@@ -28,7 +25,6 @@ func init() {
 		},
 	})
 
-	// 将日志输出到文件而不是标准输出
 	file, err := os.OpenFile("bitcask.log", os.O_CREATE|os.O_WRONLY|os.O_TRUNC, 0666)
 	if err == nil {
 		log.SetOutput(file)
@@ -36,10 +32,8 @@ func init() {
 		log.Warn("Failed to log to file, using default stderr")
 	}
 
-	// 设置日志级别
 	log.SetLevel(logrus.InfoLevel)
 
-	// 全局设置 logrus 的标准 logger
 	logrus.SetFormatter(log.Formatter)
 	logrus.SetReportCaller(log.ReportCaller)
 	logrus.SetOutput(log.Out)
