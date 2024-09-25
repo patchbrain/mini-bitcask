@@ -1,7 +1,13 @@
 package index
 
 import (
+	"encoding/binary"
+	"github.com/sirupsen/logrus"
+	"io"
 	_const "mini-bitcask/bitcask2/const"
+	"mini-bitcask/util/file"
+	"os"
+	"path/filepath"
 	"sync"
 )
 
@@ -36,8 +42,8 @@ func (ie *IndexEntry) IsValid() bool {
 }
 
 type Indexer interface {
-	LoadIndexes() error // 从磁盘读取
-	SaveIndexes() error // 持久化索引
+	LoadIndexes() error            // load index from disk
+	SaveIndexes(path string) error // save index to disk
 	Add(Key, IndexEntry) error
 	Get(Key) (IndexEntry, error)
 	Del(Key) error
@@ -48,6 +54,10 @@ type Indexer interface {
 }
 
 type Key string
+
+func (k Key) Len() int {
+	return len(k)
+}
 
 type indexer struct {
 	mu       sync.Mutex
@@ -64,9 +74,55 @@ func (i *indexer) LoadIndexes() error {
 	panic("implement me")
 }
 
-func (i *indexer) SaveIndexes() error {
-	//TODO implement me
-	panic("implement me")
+func (i *indexer) SaveIndexes(path string) error {
+	dir := filepath.Dir(path)
+	if !file.IsFileExist(dir) {
+		return _const.FileNotExist
+	}
+
+	f, err := os.OpenFile(path, os.O_RDWR|os.O_CREATE|os.O_TRUNC, 0666)
+	if err != nil {
+		return err
+	}
+	defer f.Close()
+
+	if err = i.Foreach(func(k Key, v IndexEntry) error {
+		if cErr := writeIndex(k, v, f); cErr != nil {
+			return cErr
+		}
+
+		return nil
+	}); err != nil {
+		logrus.Errorf("@SaveIndexes save index to disk failed: %s", err.Error())
+		return err
+	}
+
+	return nil
+}
+
+func writeIndex(k Key, v IndexEntry, f io.Writer) error {
+	be := binary.BigEndian
+	b := make([]byte, 0, _const.Int32Sz*2+int64(k.Len())+_const.Int64Sz*2)
+	b = be.AppendUint32(b, uint32(k.Len()))
+	b = append(b, []byte(k)...)
+	b = be.AppendUint32(b, uint32(v.FileId))
+	b = be.AppendUint64(b, uint64(v.Offset))
+	b = be.AppendUint64(b, uint64(v.ValueSz))
+
+	n, err := f.Write(b)
+	if n != len(b) {
+		return _const.InvalidIndexEntErr
+	}
+
+	if err != nil {
+		return err
+	}
+
+	if err = f.(*os.File).Sync(); err != nil {
+		return err
+	}
+
+	return nil
 }
 
 func (i *indexer) Add(key Key, entry IndexEntry) error {

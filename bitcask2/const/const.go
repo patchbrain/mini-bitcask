@@ -4,7 +4,11 @@ import "errors"
 
 const Datafile_prefix = "data_"
 
-const EntryHeaderSize int64 = 20
+const (
+	EntryHeaderSize int64 = 20
+	Int32Sz         int64 = 4
+	Int64Sz         int64 = 8
+)
 
 const MergeDir = "merge_dir"
 
@@ -20,4 +24,6 @@ var (
 	FileLockErr          = errors.New("can't get file lock")
 	ReadEntryErr         = errors.New("read entry bytes error")
 	NoFileToMergeErr     = errors.New("has no file to merge")
+	FileNotExist         = errors.New("file not exist")
+	IncompleteWriteErr   = errors.New("incomplete write")
 )
