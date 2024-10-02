@@ -42,7 +42,7 @@ func (ie *IndexEntry) IsValid() bool {
 }
 
 type Indexer interface {
-	LoadIndexes() error            // load index from disk
+	LoadIndexes(path string) error // load index from disk
 	SaveIndexes(path string) error // save index to disk
 	Add(Key, IndexEntry) error
 	Get(Key) (IndexEntry, error)
@@ -66,15 +66,80 @@ type indexer struct {
 }
 
 func NewIndexer() Indexer {
-	return &indexer{}
+	indexes := make(map[Key]IndexEntry)
+	return &indexer{index: indexes}
 }
 
-func (i *indexer) LoadIndexes() error {
-	//TODO implement me
-	panic("implement me")
+func (i *indexer) LoadIndexes(path string) error {
+	f, err := os.OpenFile(path, os.O_RDONLY, 0666)
+	if err != nil {
+		if os.IsNotExist(err) {
+			logrus.Infof("no hint file to load")
+			return nil
+		}
+
+		return err
+	}
+	defer f.Close()
+
+	err = loadIndex(i.index, f)
+	if err != nil {
+		return err
+	}
+
+	return nil
+}
+
+func loadIndex(indexes map[Key]IndexEntry, f *os.File) error {
+	logrus.Infof("into")
+	be := binary.BigEndian
+
+	// Loop until the end of the file or an error occurs
+	for {
+		// Read the size of the key
+		keySizeBuffer := make([]byte, _const.Int32Sz)
+		if _, err := f.Read(keySizeBuffer); err != nil {
+			if err == io.EOF {
+				logrus.Infof("meet EOF, so finish load indexes")
+				break // End of file reached, stop reading
+			}
+			return err
+		}
+
+		keySz := be.Uint32(keySizeBuffer)
+
+		totalSize := int64(keySz) + _const.Int32Sz + _const.Int64Sz*2
+		buffer := make([]byte, totalSize)
+		if _, err := f.Read(buffer); err != nil {
+			return err
+		}
+
+		var p int64
+		var idx IndexEntry
+
+		// Extract the key
+		key := buffer[p : p+int64(keySz)]
+		p += int64(keySz)
+
+		idx.FileId = int32(be.Uint32(buffer[p : p+_const.Int32Sz]))
+		p += _const.Int32Sz
+		idx.Offset = int64(be.Uint64(buffer[p : p+_const.Int64Sz]))
+		p += _const.Int64Sz
+		idx.ValueSz = int64(be.Uint64(buffer[p : p+_const.Int64Sz]))
+		p += _const.Int64Sz
+
+		indexes[Key(key)] = idx
+	}
+
+	return nil
 }
 
 func (i *indexer) SaveIndexes(path string) error {
+	if !i.needSave || i.index == nil {
+		return nil
+	}
+
+	logrus.Infof("into")
 	dir := filepath.Dir(path)
 	if !file.IsFileExist(dir) {
 		return _const.FileNotExist
@@ -86,7 +151,8 @@ func (i *indexer) SaveIndexes(path string) error {
 	}
 	defer f.Close()
 
-	if err = i.Foreach(func(k Key, v IndexEntry) error {
+	iCopy := i.Copy()
+	if err = iCopy.Foreach(func(k Key, v IndexEntry) error {
 		if cErr := writeIndex(k, v, f); cErr != nil {
 			return cErr
 		}
@@ -96,6 +162,7 @@ func (i *indexer) SaveIndexes(path string) error {
 		logrus.Errorf("@SaveIndexes save index to disk failed: %s", err.Error())
 		return err
 	}
+	logrus.Infof("finish save indexes")
 
 	return nil
 }

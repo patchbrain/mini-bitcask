@@ -35,6 +35,10 @@ func Open(dir string, opt ...Option) (b *Bitcask, err error) {
 	}
 
 	indexer := index.NewIndexer()
+	if err = indexer.LoadIndexes(filepath.Join(dir, ".hint")); err != nil {
+		logrus.Errorf("load indexes when open bitcask failed: %s", err.Error())
+		return nil, err
+	}
 	b.index = indexer
 
 	b.fm = files_mgr.NewFileMgr(dir, opt[0].maxFileSize)
@@ -47,16 +51,20 @@ func Open(dir string, opt ...Option) (b *Bitcask, err error) {
 }
 
 type Bitcask struct {
-	// mutex
 	mu sync.Mutex
+
 	// index, to find kv efficiently, and recover from disk
 	index index.Indexer
-	// files, interact with File System
+
+	// fm, integrating to interact with Datafiles in disk
 	fm *files_mgr.FileMgr
+
 	// flock, file lock
 	flock *flock.Flock
+
 	// isMerging, true: merging, false conversely
 	isMerging bool
+
 	// mergeTrigFid, file id of merge triggering moment
 	mergeTrigFid int32
 }
