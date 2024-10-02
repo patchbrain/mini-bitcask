@@ -5,6 +5,8 @@ import (
 	"github.com/sirupsen/logrus"
 	"io"
 	_const "mini-bitcask/bitcask2/const"
+	"mini-bitcask/bitcask2/files_mgr"
+	"mini-bitcask/bitcask2/model"
 	"mini-bitcask/util/file"
 	"os"
 	"path/filepath"
@@ -42,8 +44,8 @@ func (ie *IndexEntry) IsValid() bool {
 }
 
 type Indexer interface {
-	LoadIndexes(path string) error // load index from disk
-	SaveIndexes(path string) error // save index to disk
+	LoadIndexes(path string, fm *files_mgr.FileMgr) error // load index from disk
+	SaveIndexes(path string) error                        // save index to disk
 	Add(Key, IndexEntry) error
 	Get(Key) (IndexEntry, error)
 	Del(Key) error
@@ -70,19 +72,70 @@ func NewIndexer() Indexer {
 	return &indexer{index: indexes}
 }
 
-func (i *indexer) LoadIndexes(path string) error {
+// LoadIndexes only called when open a bitcask, to load indexes from hint and new file
+func (i *indexer) LoadIndexes(path string, fm *files_mgr.FileMgr) error {
+	foundHint := true
+
 	f, err := os.OpenFile(path, os.O_RDONLY, 0666)
 	if err != nil {
 		if os.IsNotExist(err) {
 			logrus.Infof("no hint file to load")
-			return nil
+			foundHint = false
+		} else {
+			return err
 		}
-
-		return err
 	}
 	defer f.Close()
 
-	err = loadIndex(i.index, f)
+	if foundHint {
+		err = loadHint(i.index, f)
+		if err != nil {
+			return err
+		}
+
+		// todo: need a metadata to specify if need scan last datafile
+		lastFid := fm.MaxFileId()
+		err = loadFromDf(i.index, fm.GetDatafileByFid(lastFid))
+		if err != nil {
+			return err
+		}
+
+	} else {
+		// scan all datafiles
+		for _, df := range fm.DataFiles() {
+			err = loadFromDf(i.index, df)
+			if err != nil {
+				return err
+			}
+		}
+	}
+
+	return nil
+}
+
+func loadFromDf(index map[Key]IndexEntry, df *files_mgr.Datafile) error {
+	if index == nil {
+		return _const.InvalidIndexErr
+	}
+
+	var err error
+
+	err = df.Scan(func(ent model.Entry, offset int64) error {
+		if ent.Value.Tomb == 0 {
+			// delete
+			delete(index, Key(ent.Key))
+			return nil
+		}
+
+		idxValSz := _const.EntryHeaderSize + int64(ent.KSize+ent.VSize)
+		index[Key(ent.Key)] = IndexEntry{
+			FileId:  df.FileId(),
+			Offset:  offset,
+			ValueSz: idxValSz,
+		}
+
+		return nil
+	})
 	if err != nil {
 		return err
 	}
@@ -90,7 +143,7 @@ func (i *indexer) LoadIndexes(path string) error {
 	return nil
 }
 
-func loadIndex(indexes map[Key]IndexEntry, f *os.File) error {
+func loadHint(indexes map[Key]IndexEntry, f *os.File) error {
 	logrus.Infof("into")
 	be := binary.BigEndian
 

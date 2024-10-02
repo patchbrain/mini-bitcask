@@ -150,6 +150,7 @@ func (f *FileMgr) GetDatafileByFid(fid int32) *Datafile {
 	return f.dfs[f.fid2arrIdx[fid]]
 }
 
+// DataFiles serialized datafiles array
 func (f *FileMgr) DataFiles() []*Datafile {
 	return f.dfs
 }

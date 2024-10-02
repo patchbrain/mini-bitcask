@@ -1,7 +1,9 @@
 package files_mgr
 
 import (
+	"encoding/binary"
 	"github.com/sirupsen/logrus"
+	"io"
 	"mini-bitcask/bitcask2/codec"
 	_const "mini-bitcask/bitcask2/const"
 	"mini-bitcask/bitcask2/model"
@@ -129,4 +131,49 @@ func (df *Datafile) Close() error {
 func (df *Datafile) AbandonWrite() {
 	df.w.Close()
 	df.w = nil
+}
+
+func (df *Datafile) Scan(fn func(ent model.Entry, offset int64) error) error {
+	var totalOffset int64
+
+	for {
+		b := make([]byte, _const.EntryHeaderSize)
+		if _, err := df.r.Read(b); err != nil {
+			return err
+		}
+
+		be := binary.BigEndian
+		off := _const.Int32Sz + _const.Int64Sz
+		keySz := be.Uint32(b[off : off+_const.Int32Sz])
+		off += _const.Int32Sz
+		valSz := be.Uint32(b[off : off+_const.Int32Sz])
+
+		b = make([]byte, keySz)
+		if _, err := df.r.Read(b); err != nil {
+			if err == io.EOF {
+				break
+			}
+
+			return err
+		}
+		key := b
+
+		b = make([]byte, valSz)
+		if _, err := df.r.Read(b); err != nil {
+			if err == io.EOF {
+				break
+			}
+
+			return err
+		}
+
+		e := model.NewEntry(key, b[:len(b)-1], false)
+		if err := fn(e, totalOffset); err != nil {
+			return err
+		}
+
+		totalOffset += _const.EntryHeaderSize + int64(keySz+valSz)
+	}
+
+	return nil
 }
