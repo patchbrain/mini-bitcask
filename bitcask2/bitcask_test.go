@@ -1,13 +1,18 @@
 package bitcask2
 
 import (
+	"errors"
 	"fmt"
 	"github.com/sirupsen/logrus"
 	"github.com/stretchr/testify/require"
 	"math/rand"
+	"mini-bitcask/bitcask2/files_mgr"
+	"mini-bitcask/bitcask2/index"
+	"mini-bitcask/bitcask2/metadata"
 	"mini-bitcask/util/strings"
 	"os"
 	"path/filepath"
+	"reflect"
 	"runtime"
 	"testing"
 )
@@ -191,6 +196,52 @@ func TestMergeAfterDel(t *testing.T) {
 	}
 
 	require.Nil(t, v)
+
+	return
+}
+
+func TestLoadIndexes(t *testing.T) {
+	pwd, _ := os.Getwd()
+	dir := filepath.Join(pwd, "bc_test")
+	os.MkdirAll(dir, 0666)
+
+	b, err := Open(dir, NewOption(WithMaxFileSz(1024*5)))
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	_, err = putValues(t, b, 1000)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	fm := files_mgr.NewFileMgr(dir, 1024*5)
+	err = fm.LoadDfs()
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	newIndexer := index.NewIndexer(&metadata.Metadata{})
+	err = newIndexer.LoadIndexes("", fm)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	err = b.index.Foreach(func(key index.Key, entry index.IndexEntry) error {
+		b2Ie, err := newIndexer.Get(key)
+		if err != nil {
+			return err
+		}
+
+		if !reflect.DeepEqual(b2Ie, entry) {
+			return errors.New(fmt.Sprintf("b entry: %#v, b2 entry: %#v", entry, b2Ie))
+		}
+
+		return nil
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
 
 	return
 }

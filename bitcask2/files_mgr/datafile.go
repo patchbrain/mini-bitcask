@@ -139,6 +139,10 @@ func (df *Datafile) Scan(fn func(ent model.Entry, offset int64) error) error {
 	for {
 		b := make([]byte, _const.EntryHeaderSize)
 		if _, err := df.r.Read(b); err != nil {
+			if err == io.EOF {
+				break
+			}
+
 			return err
 		}
 

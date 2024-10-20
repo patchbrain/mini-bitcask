@@ -6,10 +6,12 @@ import (
 	"io"
 	_const "mini-bitcask/bitcask2/const"
 	"mini-bitcask/bitcask2/files_mgr"
+	"mini-bitcask/bitcask2/metadata"
 	"mini-bitcask/bitcask2/model"
 	"mini-bitcask/util/file"
 	"os"
 	"path/filepath"
+	"strings"
 	"sync"
 )
 
@@ -44,8 +46,8 @@ func (ie *IndexEntry) IsValid() bool {
 }
 
 type Indexer interface {
-	LoadIndexes(path string, fm *files_mgr.FileMgr) error // load index from disk
-	SaveIndexes(path string) error                        // save index to disk
+	LoadIndexes(hintPath string, fm *files_mgr.FileMgr) error // load index from disk
+	SaveIndexes(path string) error                            // save index to disk
 	Add(Key, IndexEntry) error
 	Get(Key) (IndexEntry, error)
 	Del(Key) error
@@ -53,6 +55,7 @@ type Indexer interface {
 	Keys() []Key
 	Foreach(fn Callback) error
 	Exist(Key) bool
+	Indexes() map[Key]IndexEntry
 }
 
 type Key string
@@ -65,43 +68,46 @@ type indexer struct {
 	mu       sync.Mutex
 	index    map[Key]IndexEntry
 	needSave bool
+	Md       *metadata.Metadata
 }
 
-func NewIndexer() Indexer {
+func NewIndexer(md *metadata.Metadata) Indexer {
 	indexes := make(map[Key]IndexEntry)
-	return &indexer{index: indexes}
+	return &indexer{index: indexes, Md: md}
+}
+
+func (i *indexer) Indexes() map[Key]IndexEntry {
+	return i.index
 }
 
 // LoadIndexes only called when open a bitcask, to load indexes from hint and new file
-func (i *indexer) LoadIndexes(path string, fm *files_mgr.FileMgr) error {
+func (i *indexer) LoadIndexes(hintPath string, fm *files_mgr.FileMgr) error {
 	foundHint := true
+	var f *os.File
+	var err error
 
-	f, err := os.OpenFile(path, os.O_RDONLY, 0666)
-	if err != nil {
-		if os.IsNotExist(err) {
-			logrus.Infof("no hint file to load")
-			foundHint = false
-		} else {
-			return err
+	if strings.TrimSpace(hintPath) != "" {
+		f, err := os.OpenFile(hintPath, os.O_RDONLY, 0666)
+		if err != nil {
+			if os.IsNotExist(err) {
+				logrus.Infof("no hint file to load")
+				foundHint = false
+			} else {
+				return err
+			}
 		}
+		defer f.Close()
 	}
-	defer f.Close()
 
-	if foundHint {
+	if foundHint && i.Md.IsHintUpToDated {
+		logrus.Infof("found hint and hint is up to date, so load hint")
 		err = loadHint(i.index, f)
 		if err != nil {
 			return err
 		}
-
-		// todo: need a metadata to specify if need scan last datafile
-		lastFid := fm.MaxFileId()
-		err = loadFromDf(i.index, fm.GetDatafileByFid(lastFid))
-		if err != nil {
-			return err
-		}
-
 	} else {
 		// scan all datafiles
+		logrus.Infof("scan all datafiles")
 		for _, df := range fm.DataFiles() {
 			err = loadFromDf(i.index, df)
 			if err != nil {
@@ -121,7 +127,7 @@ func loadFromDf(index map[Key]IndexEntry, df *files_mgr.Datafile) error {
 	var err error
 
 	err = df.Scan(func(ent model.Entry, offset int64) error {
-		if ent.Value.Tomb == 0 {
+		if ent.Value.Tomb == 1 {
 			// delete
 			delete(index, Key(ent.Key))
 			return nil

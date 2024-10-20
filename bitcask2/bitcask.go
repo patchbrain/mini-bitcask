@@ -8,6 +8,7 @@ import (
 	_const "mini-bitcask/bitcask2/const"
 	"mini-bitcask/bitcask2/files_mgr"
 	"mini-bitcask/bitcask2/index"
+	"mini-bitcask/bitcask2/metadata"
 	"mini-bitcask/util/file"
 	"os"
 	"path/filepath"
@@ -34,18 +35,25 @@ func Open(dir string, opt ...Option) (b *Bitcask, err error) {
 		return nil, _const.FileLockErr
 	}
 
-	indexer := index.NewIndexer()
-	if err = indexer.LoadIndexes(filepath.Join(dir, ".hint")); err != nil {
-		logrus.Errorf("load indexes when open bitcask failed: %s", err.Error())
-		return nil, err
-	}
-	b.index = indexer
-
 	b.fm = files_mgr.NewFileMgr(dir, opt[0].maxFileSize)
 	err = b.fm.LoadDfs()
 	if err != nil {
 		return nil, err
 	}
+
+	err = b.Md.Load(dir)
+	if err != nil {
+		if os.IsExist(err) {
+			return nil, err
+		}
+	}
+
+	indexer := index.NewIndexer(b.Md)
+	if err = indexer.LoadIndexes(filepath.Join(dir, ".hint"), b.fm); err != nil {
+		logrus.Errorf("load indexes when open bitcask failed: %s", err.Error())
+		return nil, err
+	}
+	b.index = indexer
 
 	return b, nil
 }
@@ -67,6 +75,8 @@ type Bitcask struct {
 
 	// mergeTrigFid, file id of merge triggering moment
 	mergeTrigFid int32
+
+	Md *metadata.Metadata
 }
 
 func (b *Bitcask) Put(key, value []byte) error {
@@ -102,6 +112,10 @@ func (b *Bitcask) Del(key []byte) (err error) {
 	}
 
 	return nil
+}
+
+func (b *Bitcask) Dir() string {
+	return b.fm.Dir()
 }
 
 func (b *Bitcask) Get(key []byte) (val []byte, err error) {
@@ -198,6 +212,18 @@ func (b *Bitcask) Close() error {
 	defer b.mu.Unlock()
 
 	var err error
+
+	err = b.index.SaveIndexes(filepath.Join(b.fm.Dir(), ".hint"))
+	if err != nil {
+		return err
+	}
+
+	b.Md.IsHintUpToDated = true
+	err = b.Md.Save(b.Dir())
+	if err != nil {
+		return err
+	}
+
 	err = b.fm.CloseDfs(-1)
 	if err != nil {
 		return err

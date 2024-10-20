@@ -46,7 +46,7 @@ func TestIndexer_SaveIndexes(t *testing.T) {
 	saveIndexes(idxer, t)
 }
 
-func TestIndexer_LoadIndexes(t *testing.T) {
+func TestIndexer_LoadHint(t *testing.T) {
 	idxer := NewIndexer()
 
 	keys := []string{}
@@ -76,7 +76,12 @@ func TestIndexer_LoadIndexes(t *testing.T) {
 	pwd, _ := os.Getwd()
 	path := filepath.Join(pwd, "test_idx")
 	idxer2 := NewIndexer()
-	if err = idxer2.LoadIndexes(path); err != nil {
+	fHint, err := os.OpenFile(path, os.O_RDONLY, 0666)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	if err = loadHint(idxer2.Indexes(), fHint); err != nil {
 		t.Fatal(err)
 	}
 
